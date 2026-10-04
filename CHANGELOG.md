@@ -1,26 +1,366 @@
 # Changelog
-## 0.10.1.15 - 2025-10-09
+## 1.0.3 - 2026-10-02
 
+- **Status page CSV export:** The Export button on the status dashboard was a placeholder that only showed a "not implemented" toast. It now downloads a CSV of the currently displayed (filtered and sorted) warranties, using the same column layout as the main page export so the file can be re-imported.
+  - _Files: `frontend/status.js`_
+- **Global-view timeline fix:** The expiration timeline chart always fetched `/api/warranties` (current user only), so in global view it silently omitted other users' warranties. It now builds from the already-loaded view data, matching the rest of the dashboard.
+  - _Files: `frontend/status.js`_
+- **Currency preference now applies to warranty cards:** The settings page promises "the symbol to display for prices", but card prices preferred the per-warranty currency code (backend-stamped `USD`), so changing the preference never updated the cards. Card prices now use the user's display preference; the per-warranty currency remains as the creation default and in exports. New warranties created without an explicit currency now default to the user's preferred currency (matching CSV import) instead of hardcoded `USD`; edits preserve the existing currency when the form sends none.
+  - _Files: `frontend/js/components/warrantyRenderer.js`, `frontend/script.js`, `backend/warranties_routes.py`_
+- **Settings fixes:** Removed a leftover "temporary debug script" tag (`js/i18n-debug.js`, 404); fixed the currency dropdown defaulting to a blank value for fresh users (option values are codes like `USD`, but the default set `'$'`); removed a duplicated description paragraph under Expiring Soon Days.
+  - _Files: `frontend/settings-new.html`, `frontend/settings-new.js`_
+- **Tag creation in edit modal:** Creating a brand-new tag from the edit modal's tag dropdown attached it to the hidden add-wizard instead of the warranty being edited. The create-tag action now routes through the context-aware selection handler.
+  - _Files: `frontend/js/components/tagManager.js`_
 
 ### Fixed
-- Global view on Index page now shows warranties from all users as expected:
-  - Backend: Added `GET /api/warranties/global/archived` and unified global queries to return complete sets with correlated subqueries for claim status; no accidental row collapse.
-  - Frontend: When scope is Global and Status is "All", archived warranties are merged from the new global archived endpoint into the main list. Archived view in Global scope now uses the global archived endpoint.
-  - Cache bust: Bumped `script.js` and service worker cache to ensure clients receive the updated logic.
-  - Files: `backend/warranties_routes.py`, `frontend/script.js`, `frontend/sw.js`, `frontend/index.html`, `frontend/status.html`
+- **Input validations are now enforced and translated:** three new HTTP 400 validations — product name over 255 chars (was an unhandled DB error → HTTP 500), expiration date before purchase date (was silently accepted), and invalid claim status (was silently coerced) — now return a stable machine-readable `code` (`product_name_too_long`, `expiration_before_purchase`, `invalid_claim_status`; claim-status errors also include `valid_statuses`) alongside the English fallback message. The frontend maps those codes to i18n keys via a new `apiErrorMessage()` helper in `ui.js` (used by the add-warranty form, edit modal, and claims toasts), so error toasts render in the user's language instead of always-English. Two new English keys were added (`messages.product_name_too_long`, `messages.invalid_claim_status`) and machine-translated into all 19 non-English locales with `{{statuses}}` placeholder integrity verified. Also removed the now-unused `safeErrorMessage()` helper from `apiService.js`.
+  - _Files: `backend/warranties_routes.py`, `frontend/js/components/ui.js`, `frontend/js/services/apiService.js`, `frontend/js/components/addWarrantyForm.js`, `frontend/js/components/editModal.js`, `frontend/js/components/claims.js`, `locales/*/translation.json`_
+- **Expiry-day inconsistency fixed:** a warranty expiring *today* got three different answers — statistics counted it as `expired` (`expiration_date <= today`), the UI showed "expiring" (0 days left), and the notification query excluded it (`expiration_date > today`). All three now agree it is still valid: statistics uses `expiration_date < today` for expired and `>= today` for the active / expiring-soon / timeline buckets, and the expiry notification query includes it (`>= today`).
+  - _Files: `backend/statistics_routes.py`, `backend/notifications.py`_
+- **CSV tag/serial round-trip fixed:** the frontend export joined tags and serial numbers with spaces while the import splits on commas, so re-importing an export merged multi-tag warranties into a single tag. Export now joins with `", "` to match the import.
+  - _Files: `frontend/js/components/importExport.js`_
+- **CSV export/import now round-trips all fields:** the export only wrote 13 columns, silently dropping **Notes, Currency, ModelNumber, and WarrantyType** — re-importing an export lost notes and reset currency to the user's default. Both exports (main page and status dashboard) now write 17 columns including those fields, and the importer accepts them: `Notes`, `ModelNumber`, and `WarrantyType` are stored as-is, `Currency` is validated against the supported code list (unknown codes fall back to the user's preferred currency, as before). Unknown-column files are still accepted via the optional-header mechanism.
+  - _Files: `frontend/js/components/importExport.js`, `frontend/status.js`, `backend/warranties_routes.py`, `backend/statistics_routes.py`_
+- **Tags/serial numbers containing commas now survive CSV round-trip:** export joined multi-value fields with `", "` and the import split naively on commas, so a tag like `sweepC,comma-tag` came back as two tags. Tags and SerialNumber cells are now JSON-encoded on export (`["a","b,c"]`); the importer parses JSON first and falls back to comma-splitting for legacy or hand-written files.
+  - _Files: `frontend/js/components/importExport.js`, `frontend/status.js`, `backend/warranties_routes.py`_
+- **Missing English i18n keys added and all 19 non-English locales fully translated:** Static analysis of every `t('…')` call and `data-i18n` attribute found 66 keys (toast messages, validation errors, claims labels, tag-manager strings, the registration-disabled notice, `actions.view`, the `tags.no_selected` placeholder, and 16 `paperless.*` keys) missing from `locales/en/translation.json`. i18next renders undefined keys as raw key text, so users saw strings like `messages.deleted_successfully` in toasts. All values were taken from the inline English fallbacks already present at the call sites (with `defaultValue` fallbacks added at the call sites for graceful degradation), so default-language UX is unchanged; other languages now fall back to English instead of showing raw keys. Every key in `locales/en/translation.json` (767 keys) was then machine-translated from English (Google Translate) into all 19 non-English locales — 2,015 missing keys in total (ru 173, it 150, most others ~95–98) plus 1,194 strings that existed only as untranslated English — with `{{placeholder}}` integrity verified on every string (22 cases where the engine translated placeholder names like `{{name}}` → `{{nombre}}` were repaired; one Hindi string that dropped `{{count}}` was fixed by hand; a pre-existing Hebrew translation that dropped `{{username}}` was fixed). Short brand/technical terms (Warracker, Paperless-ngx, CSV, OIDC, URLs) were deliberately left as-is. These are machine translations — native-speaker review is recommended before relying on them for customer-facing polish.
+  - _Files: `locales/*/translation.json`, `frontend/js/components/editModal.js`, `frontend/js/components/addWarrantyForm.js`, `frontend/js/components/tagManager.js`_
+- **Theme init crash on every page loading the classic script:** `script.js` called `initializeTheme()` unguarded on `DOMContentLoaded`, but `js/lib/theme.js` (the only file defining it) is never included as a classic script — it is an ES module loaded only via `js/index.js`. The call threw `initializeTheme is not defined` on about, status, register, and both reset-password pages (and index), which also silently skipped the rest of that init handler (`setupUIEventListeners()`, `setupModalTriggers()`, form wiring). The call is now guarded with `typeof initializeTheme === 'function'`; the visual theme was and is applied by `theme-loader.js` on all pages.
+  - _Files: `frontend/script.js`
+- **Paperless "Test Connection" ignored unsaved form values:** Clicking "Test Connection" on the settings page with a freshly entered URL and API token always reported "Connection Failed!", even when the Paperless-ngx instance was reachable, because `POST /api/paperless/test` ignored the `url`/`api_token` in the request body and only ever tested the saved site settings. The endpoint now tests the provided values directly when both are present, and falls back to the saved settings otherwise.
+  - _Files: `backend/file_routes.py`
+- **Font Awesome now served locally (works offline):** The icon font was loaded from the cdnjs CDN, so all UI icons disappeared on offline or restricted networks. Font Awesome Free 7.0.1 (`all.min.css` + webfonts, ~312 KB) is now vendored under `frontend/vendor/fontawesome/` and referenced by all 8 pages; added `font/woff2`, `font/woff`, and `font/ttf` MIME types to `nginx.conf`.
+  - _Files: `frontend/vendor/fontawesome/`, `frontend/*.html`, `nginx.conf`_
+- **Expired JWT left a broken UI (#225):** Users returning after their JWT expired saw a broken, empty UI instead of being redirected to login.
+  - **Root Cause:** `auth-redirect.js` only checked for the *presence* of `auth_token` in localStorage, not its validity. An expired token was treated as authenticated, causing the UI to render with stale cached data while API calls returned 401.
+  - **Solution:** Two layers — `auth-redirect.js` now synchronously decodes the JWT payload and verifies the `exp` claim before allowing protected pages to load (expired or malformed tokens are cleared and the user is redirected to login), and the API layer (`apiService.js`) now logs out and redirects on any 401 response instead of leaving an empty authenticated-looking UI. Added OIDC SSO bypass for `auth-redirect.html` to prevent redirect loops during SSO token processing.
+  - _Files: `frontend/auth-redirect.js`, `frontend/js/services/apiService.js`, `frontend/sw.js`, `frontend/index.html`, `frontend/status.html`, `frontend/settings-new.html`, `frontend/login.html`, `frontend/register.html`, `frontend/auth-redirect.html`_
 
-### Added
-- Model Number field added to warranties:
-  - Backend: Added `model_number` column and wired through GET/POST/PUT.
-  - Frontend: New and Edit modals now include a Model Number input.
-  - Cards: When present, Model Number displays on warranty cards (all views).
-  - Files: `backend/migrations/047_add_model_number_to_warranties.sql`, `backend/warranties_routes.py`, `frontend/index.html`, `frontend/status.html`, `frontend/script.js`, `locales/en/translation.json`
+- **Docker Build Failure (Stale Package Versions):** Fixed Dockerfile failing to build due to outdated pinned Debian package versions.
+  - **Root Cause:** Exact version pins for Debian Trixie packages became stale after security updates (e.g., `libcurl4` renamed to `libcurl4t64`, versions bumped with `+deb13u3` suffix).
+  - **Solution:** Removed brittle version pins from `apt-get install` commands. Reproducibility is maintained via the SHA-pinned base image digest.
+  - _Files: `Dockerfile`_
 
 ### Enhanced
-- Add Warranty modal tabs responsive alignment:
-  - Shrink tab label text and spacing at ≤740px to prevent wrapping and keep all five tabs aligned (Product, Warranty, Documents, Tags, Summary).
-  - Maintain icons with labels; no text hiding. Uses five-step progress indicator consistent across breakpoints.
-  - Files: `frontend/style.css`
+- **Frontend Architecture Refactoring:** Migrated frontend JavaScript from monolithic `script.js` to modular ES modules for improved maintainability and code organization.
+  - **New Modular Components:** Created dedicated modules for `addWarrantyForm`, `editModal`, `tagManager`, `notes`, `claims`, `importExport`, `warrantyActions`, `modals`, `ui`, and `paperless`.
+  - **Centralized State Management:** Implemented `store.js` module for centralized application state and event-driven UI updates.
+  - **Controller Pattern:** Added `warrantyListController.js` to orchestrate warranty display, filtering, and actions.
+  - **Bootstrap Module:** Created `bootstrap.js` for centralized initialization of core services (auth, theme, currencies, Paperless).
+  - **Backward Compatibility:** Legacy `script.js` remains functional during migration with sync mechanisms to ensure data consistency.
+  - _Files: `frontend/js/bootstrap.js`, `frontend/js/index.js`, `frontend/js/store.js`, `frontend/js/controllers/warrantyListController.js`, `frontend/js/components/*.js`_
+
+- **Frontend Architecture Refactoring - Phase 2:** Continued modularization effort, reducing `script.js` by 841 lines (9% reduction).
+  - **Form Tabs Module:** Extracted complete form tab navigation system to `formTabs.js` with validation, summary generation, and form reset functionality.
+  - **Serial Numbers Module:** Created `serialNumbers.js` for dynamic serial number input management with add/remove/get/set operations.
+  - **Code Consolidation:** Removed duplicate mobile menu code (157 lines), theme functions, and date utilities by delegating to existing modules (`mobile-menu.js`, `lib/theme.js`, `lib/dates.js`).
+  - **Claims Documentation:** Documented delegation pattern for claims functionality already extracted to `components/claims.js`.
+  - **Module Integration:** Added new modules to `js/index.js` with proper ES6 imports while maintaining backward compatibility via `window` exports.
+  - _Files: `frontend/js/components/formTabs.js`, `frontend/js/components/serialNumbers.js`, `frontend/script.js`, `frontend/js/index.js`_
+  - _Documentation: `memory_bank/frontend-refactoring-phase2.md`_
+
+- **Secure Image Loading Optimization:** Improved product photo loading performance with parallel fetching and caching.
+  - **Parallel Image Loading:** Images now load simultaneously using `Promise.all` instead of sequentially.
+  - **Image Preloading:** Warranty images are preloaded in the background after warranties load, enabling instant display when rendered.
+  - **Memory Caching:** Blob URLs are cached in memory to prevent re-fetching previously loaded images.
+  - **Loading Animation:** Added CSS shimmer skeleton animation during image loading with smooth fade-in on completion.
+  - _Files: `frontend/js/components/paperless.js`, `frontend/script.js`, `frontend/style.css`_
+
+### Fixed
+- **Paperless-ngx Document Browse in Add Warranty Wizard:** Fixed bug where browsing and selecting an existing Paperless-ngx document during new warranty creation would silently fail to attach the document.
+  - **Root Cause:** The modular `paperless.js` (loaded as an ES module after `script.js`) was overriding the working legacy Paperless browser functions with broken versions that used a non-existent API endpoint (`/api/paperless/documents` instead of `/api/paperless/search`), targeted a non-existent DOM container (`#paperlessDocumentsContainer` instead of `#paperlessDocumentsList`), and failed to dynamically create hidden inputs to store the selected document ID.
+  - **Solution:** Fixed the modular `openPaperlessBrowser`, `fetchPaperlessDocuments`, `selectPaperlessDocument`, and related functions to use the correct API endpoint, DOM element IDs, pagination controls, and to dynamically create hidden inputs when a document is selected. Also added Paperless browse selection support to the edit warranty modal (`editModal.js`).
+  - _Files: `frontend/js/components/paperless.js`, `frontend/js/components/addWarrantyForm.js`, `frontend/js/components/editModal.js`_
+
+- **Warranty Card Invoice Label:** Fixed warranty card document link displaying "Invoice/Receipt" instead of just "Invoice".
+  - **Root Cause:** `warrantyRenderer.js` was using the `warranties.invoice_receipt` translation key (full form label) instead of the `warranties.invoice_receipt_short` key intended for card display.
+  - **Solution:** Changed the translation key to `warranties.invoice_receipt_short`.
+  - _Files: `frontend/js/components/warrantyRenderer.js`_
+
+- **Paperless-ngx File Upload:** Fixed critical bug where files selected for Paperless-ngx storage were incorrectly uploaded locally instead.
+  - **Root Cause:** The `getStorageOption()` function was generating incorrect radio button names for the add warranty form (`InvoiceStorage` instead of `invoiceStorage`), causing the storage selection to default to 'local'.
+  - **Solution:** Corrected the function to use lowercase names for add form (`invoiceStorage`, `manualStorage`) and camelCase for edit form (`editInvoiceStorage`, `editManualStorage`).
+  - _Files: `frontend/js/components/paperless.js`, `frontend/script.js`_
+
+- **Authentication Compatibility:** Fixed `TypeError: window.auth.checkAuthState is not a function` error on protected pages.
+  - **Root Cause:** The `authService.js` module was overwriting `window.auth` without including the `checkAuthState` method.
+  - **Solution:** Added `checkAuthState` to the `window.auth` compatibility object.
+  - _Files: `frontend/js/services/authService.js`_
+
+- **Tag Management in Warranty Forms:** Fixed tags not being added or removed correctly when saving warranties.
+  - **Root Cause:** The modular `addWarrantyForm.js` and `editModal.js` were reading from stale global `window.selectedTags` arrays instead of the centralized store.
+  - **Solution:** Updated both modules to exclusively use `getSelectedTags()` and `getEditSelectedTags()` from the store.
+  - _Files: `frontend/js/components/addWarrantyForm.js`, `frontend/js/components/editModal.js`_
+
+- **Expiring Soon Status Display:** Fixed "Expiring Soon" status not showing correctly based on user preferences.
+  - **Root Cause:** The `expiringSoonDays` value from user preferences was not being synced to the store after loading from the API.
+  - **Solution:** Added explicit store update in `loadAndApplyUserPreferences()` and a storage event listener to keep the store in sync.
+  - _Files: `frontend/script.js`_
+
+- **Notes Modal Edit Warranty:** Fixed "Edit Warranty" button in notes modal not working with `messages.warranty_not_found_refresh` error.
+  - **Root Cause:** Duplicate global exposure in `notes.js` was overwriting the correct `showNotesModal` function, preventing the warranty object from being stored properly.
+  - **Solution:** Removed duplicate code and ensured `handleEditWarranty` uses the already-stored warranty object.
+  - _Files: `frontend/js/components/notes.js`_
+
+- **Warranty Delete/Archive Actions:** Fixed warranty deletion and archiving not working from the modular components.
+  - **Root Cause:** The `warrantyActions.js` module was reading from an empty store while `script.js` was setting global variables.
+  - **Solution:** Added fallback to `window.currentWarrantyId` and sync to store in `openDeleteModal`/`openArchiveModal`.
+  - _Files: `frontend/js/components/warrantyActions.js`, `frontend/script.js`_
+
+- **Service Worker Caching JS Files Indefinitely:** Fixed JS module updates (e.g. `editModal.js`, `warrantyRenderer.js`) not being picked up by returning users even after a Docker rebuild.
+  - **Root Cause:** The service worker used a cache-first strategy for all request types including scripts. Once a JS file was stored in the SW cache it was served directly from there, completely bypassing nginx — making nginx cache headers irrelevant and preventing code updates from reaching users until the `CACHE_NAME` was manually bumped.
+  - **Solution:** Changed the SW fetch handler to use a **network-first** strategy for all script requests (falling back to cache only when offline) and kept cache-first only for non-code assets (images, fonts, CSS, HTML). Also updated nginx to serve `.js` files with `Cache-Control: no-cache, must-revalidate` so the browser always revalidates JS on each visit.
+  - _Files: `frontend/sw.js`, `nginx.conf`_
+
+- **Local File Downloads Returning Empty Files:** Fixed invoice, manual, and product photo downloads returning empty files.
+  - **Root Cause:** `USE_X_SENDFILE` was enabled, so Flask returned an `X-Sendfile` header with an empty body, expecting nginx to serve the file — but `nginx.conf` has no X-Sendfile (or X-Accel-Redirect) handling.
+  - **Solution:** Disabled `USE_X_SENDFILE` so Flask streams file bytes directly.
+  - _Files: `backend/config.py`_
+
+- **Paperless-ngx Upload Never Linking Documents (JSON Task IDs):** Fixed files uploaded to Paperless-ngx silently never linking to the warranty when Paperless returned the task UUID JSON-encoded.
+  - **Root Cause:** `upload_document()` only polled the Paperless task endpoint when the task UUID came back as plain text; JSON-encoded UUIDs were ignored, leaving `document_id` null.
+  - **Solution:** Handle both plain-text and JSON-encoded task UUID shapes and poll the task endpoint in both cases.
+  - _Files: `backend/paperless_handler.py`_
+
+- **Archived Warranties Counted in Dashboard Statistics:** Fixed dashboard statistics (total/active/expired/expiring-soon) including archived warranties.
+  - **Root Cause:** The statistics queries in `statistics_routes.py` never filtered on `archived_at`, so archiving a warranty left all dashboard cards unchanged.
+  - **Solution:** Both `/api/statistics` and `/api/statistics/global` now exclude archived warranties from all counts, the expiration timeline, and the recent-warranties list. A new `archived` count is returned by both endpoints and shown as an "Archived" card on the dashboard. The dashboard init was also fixed to pass the `archived` value through to the summary cards (it was being dropped, leaving the card stuck at 0).
+  - _Files: `backend/statistics_routes.py`, `frontend/status.html`, `frontend/status.js`, `locales/en/translation.json`_
+
+- **Gevent worker freeze on stale DB connections (#239):** Under gevent workers, a database restart or connection drop could leave the whole app unresponsive: stale pooled connections raised mid-request and the Docker container still reported healthy.
+  - **Solution:** Added `GET /api/health` with a real DB round-trip (5s statement timeout, rollback before release); Docker `HEALTHCHECK` now requires backend health. Added 30s statement timeout + TCP keepalive options, `psycogreen==1.0.2` with gevent patching, and fork-safe pool reinitialization.
+  - _Files: `backend/__init__.py`, `backend/db_handler.py`, `Dockerfile`, `docker-compose.yml`, `requirements.txt`_
+- **CSV export truncated at `#` (#245):** The legacy `script.js` CSV export built a `data:` URI with `encodeURI` (which leaves `#` unencoded, truncating the file at the first `#`) and double-bound the export button. Removed the legacy function/binding; the modular Blob-based export is the single path.
+  - _Files: `frontend/script.js`_
+- **Password reset crashed on naive/aware datetime comparison (#216):** Comparing the `TIMESTAMP WITHOUT TIME ZONE` reset-expiry column against `datetime.now(UTC)` raised `TypeError` → HTTP 500 on every reset attempt. The comparison is now timezone-safe.
+  - _Files: `backend/auth_routes.py`_
+- **Nginx debug logging filled disks (#211):** `error_log ... debug` was set in production. Changed to `warn` and added logrotate configuration plus cron/supervisor wiring.
+  - _Files: `nginx.conf`, `Dockerfile`, `supervisord.conf`_
+- **OIDC redirect dropped nonstandard ports (#238):** Nginx used `$host` (no port) when building redirect targets. Now uses `$http_host` so callbacks preserve e.g. `:8005`.
+  - _Files: `nginx.conf`_
+- **Repeated expiry email notifications (#188):** A warranty inside the expiry window re-notified every day. New migration `051_add_notification_log.sql` records `(warranty_id, days_before, channel)`; each threshold now notifies exactly once (check-then-insert with `ON CONFLICT DO NOTHING`).
+  - _Files: `backend/notifications.py`, `backend/migrations/051_add_notification_log.sql`_
+- **Mixed-case `DB_USER` broke migrations (#187):** Migrations interpolated the role name unquoted (`AsIs`), so PostgreSQL folded `MyUser` to `myuser`. Role identifiers are now properly quoted and passwords parameterized.
+  - _Files: `backend/migrations/apply_migrations.py`_
+- **`DATABASE_URL` ignored by app and migrations (#108):** The pool and the migration runner now accept a full `DATABASE_URL` (URL-decoded, query options such as `?sslmode=require` preserved); `DB_*` variables remain as fallback.
+  - _Files: `backend/db_handler.py`, `backend/migrations/apply_migrations.py`_
+- **Contradictory proxy scheme headers (#97, #190):** Nginx and gunicorn disagreed on `X-Forwarded-Proto` handling. Nginx now forwards a single `X-Forwarded-Proto` and strips alternate scheme headers; `DISABLE_NGINX=true` lets Flask serve frontend+API directly on port 5000.
+  - _Files: `nginx.conf`, `backend/__init__.py`, `docker-compose.yml`_
+- **Complete Paperless tag pagination (#255):** The tags endpoint returned only the first Paperless page. It now requests `page_size=1000` and follows `next` links.
+  - _Files: `backend/paperless_handler.py`_
+- **CSV import rejected BOM/cased/whitespace headers (#236):** The importer now decodes with `utf-8-sig`, trims headers, and matches documented column names case-insensitively.
+  - _Files: `backend/warranties_routes.py`_
+- **Long labels overflowed warranty cards (#212):** Added `overflow-wrap`/`word-break` for warranty card and detail content.
+  - _Files: `frontend/style.css`_
+- **Add-warranty dialog kept the previous photo (#206):** The reset cleared the file input and hid the preview wrapper but never cleared the preview `<img>` `src`, so the old photo's data URL survived. The reset now clears the input value and removes the preview `src` (tags were already reset correctly).
+  - _Files: `frontend/js/components/addWarrantyForm.js`_
+- **NOK/DKK currency reverted to SEK in settings (#205):** The currency dropdown used the *symbol* as the option value and looked the code up with `find(c => c.symbol === 'kr')`, which returns SEK (first match) even for NOK/DKK/ISK. Option values are now the unambiguous currency codes; loading prefers the stored code with fallback to legacy stored symbols.
+  - _Files: `frontend/settings-new.js`_
+- **Inconsistent SMTP sender variables (#201):** Password reset used the undocumented `SMTP_SENDER_EMAIL` (default `noreply@warracker.com`) while notifications used `SMTP_FROM_ADDRESS` (default `notifications@warracker.com`); `SMTP_USERNAME` also had a fake `notifications@warracker.com` default that leaked into the envelope sender. New `get_smtp_from_address()` helper: `SMTP_FROM_ADDRESS` > `SMTP_SENDER_EMAIL` (legacy) > `SMTP_USERNAME` > default; both mail paths use it. `SMTP_USERNAME` no longer defaults to a placeholder; the envelope sender falls back to the From address.
+  - _Files: `backend/utils.py`, `backend/auth_routes.py`, `backend/notifications.py`_
+- **Invisible toasts blocked clicks (#197):** The fade-out animation set `opacity: 0` at ~3s but the element stayed in the DOM until ~5s, intercepting clicks at `z-index: 1001`. The keyframes now end with `visibility: hidden`, the container is `pointer-events: none`, and the previously undefined `.toast-fade-out` class is now defined.
+  - _Files: `frontend/style.css`_
+- **About page loaded without styles:** `about.html` linked `styles.css`, a file that doesn't exist (the stylesheet is `style.css`), so the page rendered unstyled and logged a 404.
+  - _Files: `frontend/about.html`_
+- **Total Value dashboard card (#192):** New "Total Value" card on the status dashboard showing the sum of purchase prices across non-archived warranties, formatted with the user's currency symbol. Added `total_value` to both `/api/statistics` and `/api/statistics/global` (`COALESCE` to 0, so empty/null prices are safe); i18n key `status.total_value` added to all 20 locales.
+  - _Files: `backend/statistics_routes.py`, `frontend/status.html`, `frontend/status.js`, `locales/*/translation.json`_
+- **Total Value calculation tooltip (#192):** Clicking the Total Value card opens a popover explaining how the figure is calculated (sum of purchase prices of non-archived warranties; missing prices count as 0). New i18n key `status.total_value_tooltip` in all 20 locales; keyboard accessible (Enter/Space toggles, Escape dismisses).
+  - _Files: `frontend/status.html`, `frontend/status.js`, `frontend/style.css`, `locales/*/translation.json`_
+- **Duplicate `status.js` include removed:** `status.html` loaded `status.js` twice (once in `<head>`, once at end of `<body>`), attaching every event listener twice and initializing the dashboard twice.
+  - _Files: `frontend/status.html`_
+- **Edit-modal tabs discoverable on phones:** On a 390px viewport the Warranty/Documents/Tags tab buttons were clipped off the edge of the edit modal with no indication more tabs existed. The tab bar is swipeable, and below 480px its right edge now fades out to hint there's more to swipe to.
+  - _Files: `frontend/style.css`_
+- **Status table expiry-day consistency:** The dashboard cards and backend statistics correctly treat a warranty expiring *today* as still valid, but the status table's row label, status filter, and sort priority still used `<= today`, marking today-expiring warranties "Expired" (and the "expiring" filter excluded them, so they fell in a gap). All three now use `< today` for expired / `>= today` for expiring, matching the statistics. Also fixed `PATCH /api/warranties/<id>/archive` returning HTTP 500 on an empty JSON body — it now returns 400 with a clear message.
+  - _Files: `frontend/status.js`, `backend/warranties_routes.py`_
+
+## 1.0.2 - 2025-10-30
+
+### Added  
+- **CSV Import: Exact Expiration Date support (`ExpirationDate`)**  
+  - Uses an exact `ExpirationDate` when duration fields (`WarrantyDurationYears`, `WarrantyDurationMonths`, `WarrantyDurationDays`) are all 0/blank and `IsLifetime` is `FALSE`.  
+  - Documentation updated to include the new field and its conditional usage.  
+  - _Files: `backend/warranties_routes.py`, `README.md`_
+
+### Enhanced  
+- **CSV Import: Partial commits with per-row errors**  
+  - Successful rows are committed even if some rows fail; the response includes detailed errors for failed rows.  
+  - Returns `200` for partial success; returns `400` only if all rows fail.  
+  - _Files: `backend/warranties_routes.py`_  
+
+- **CSV Import: Automatic duplicate name suffixing**  
+  - If a `ProductName` already exists for the same `PurchaseDate` (in the database or earlier in the same file), the importer now auto-renames it to `Name (1)`, `Name (2)`, etc.  
+  - Prevents hard failures for separate products that share the same name/date but have different serials/metadata.  
+  - _Files: `backend/warranties_routes.py`_
+
+ - **Permissions: Enhanced fixing process for upload folder and database**  
+   - Updated entrypoint log to "Fixing permissions (database and upload folder)" and invoke `fix_permissions.py` for both scopes  
+   - Split into `fix_upload_folder_permissions()` and `fix_database_permissions()`; recursively ensures upload ownership to `warracker:warracker` (uid:999, gid:999) with improved logging and connection retry handling  
+   - _Files: `Docker/entrypoint.sh`, `backend/fix_permissions.py`_  
+   - Credit: Enhancement contributed by [@Erwan-loot](https://github.com/Erwan-loot)  
+   - Ref: [commit b63f7d2](https://github.com/sassanix/Warracker/commit/b63f7d20860663c3c00a702ea830bbf058e612c3) (PR #180)  
+
+## 1.0.1 - 2025-10-26
+
+### Fixed  
+- Container startup loop caused by insufficient PostgreSQL privileges in the startup permissions script.  
+  - Wrapped the `ALTER ROLE ... CREATEROLE` in a safe DO block with exception handling so missing privilege is logged as a NOTICE and startup continues.  
+  - No feature changes; service now starts normally without elevated DB privileges.  
+  - _Files: `backend/fix_permissions.sql`_
+
+## 1.0.0 - 2025-10-24 
+
+### Added  
+- **Renovate Bot Integration**: Automated dependency management system  
+  - Complete configuration in `renovate.json` with intelligent grouping (Debian packages, Python packages, GitHub Actions)  
+  - GitHub Actions workflow for automatic execution every Monday at midnight  
+  - Advanced features: merge confidence badges, version pinning, OpenSSF Scorecard security checks, and separation of multiple major releases  
+  - _Files: `.github/workflows/renovate.yml`, `renovate.json`_  
+  - Credit: Renovate integration contributed by [@Erwan-loot](https://github.com/Erwan-loot)  
+
+- **Model Number field**: New optional field for warranties to track product model numbers  
+  - Backend: Added `model_number` column and wired through all GET/POST/PUT routes  
+  - Frontend: New and Edit modals include Model Number input; displayed on warranty cards (all views including Global)  
+  - _Files: `backend/migrations/047_add_model_number_to_warranties.sql`, `backend/warranties_routes.py`, `frontend/index.html`, `frontend/status.html`, `frontend/script.js`, `locales/en/translation.json`_  
+
+- **Administrator Audit Trail (admin-only)**  
+  - Backend: New `audit_log` table and centralized `create_audit_log` helper. Logs site setting changes (with secrets masked), user updates, and deletions. Added `GET /api/admin/audit-trail` endpoint.  
+  - Frontend: Added standalone Audit Trail section in Settings (separate from Apprise) with safe HTML rendering of timestamp, user, action, and details.  
+  - _Files: `backend/migrations/048_create_audit_log_table.sql`, `backend/audit_logger.py`, `backend/admin_routes.py`, `frontend/settings-new.html`, `frontend/settings-new.js`_  
+
+- **Docker configuration files**: Dedicated setup for containerized environments  
+  - `Docker/entrypoint.sh` – main entry script  
+  - `Docker/nginx-wrapper.sh` – NGINX wrapper  
+  - `Docker/supervisord.conf` – Supervisor configuration  
+  - _Files: `Docker/entrypoint.sh`, `Docker/nginx-wrapper.sh`, `Docker/supervisord.conf`_  
+
+- Polish language support added to all pages (index, about, status, settings) with comprehensive translations for UI elements, messages, and system text.  
+  - _Files: `locales/pl/translation.json`_  
+  - Credit: Polish translation contributed by [@GaikMarcin](https://github.com/GaikMarcin)  
+
+- Hebrew language support added across the app (index, about, status, settings) with full translations and RTL support.  
+  - Frontend: Added `he` to supported languages and RTL list, updated Settings language dropdown  
+  - Backend: Added `he` to supported languages and language map; migration updates DB constraint  
+  - _Files: `locales/he/translation.json`, `locales/en/translation.json`, `frontend/js/i18n.js`, `frontend/settings-new.html`, `backend/localization.py`, `backend/migrations/050_update_language_constraint_he.py`_  
+  - Credit: Hebrew translation contributed by [@ngfblog](https://github.com/ngfblog)  
+
+ - Warranty claim modal i18n: Completed translations for remaining locales  
+  - Coverage: `ar`, `cs`, `de`, `es`, `fa`, `fr`, `hi`, `it`, `ja`, `ko`, `nl`, `pt`, `ru`, `uk`, `zh_CN`, `zh_HK`  
+  - _Files: `locales/ar/translation.json`, `locales/cs/translation.json`, `locales/de/translation.json`, `locales/es/translation.json`, `locales/fa/translation.json`, `locales/fr/translation.json`, `locales/hi/translation.json`, `locales/it/translation.json`, `locales/ja/translation.json`, `locales/ko/translation.json`, `locales/nl/translation.json`, `locales/pt/translation.json`, `locales/ru/translation.json`, `locales/uk/translation.json`, `locales/zh_CN/translation.json`, `locales/zh_HK/translation.json`_  
+
+- About page: Reddit community link and localization  
+  - Added `https://www.reddit.com/r/Warracker/` under Community & Support with proper branding  
+  - Localized new label `about.reddit_community` across all supported locales  
+  - _Files: `frontend/about.html`, `locales/*/translation.json`_  
+
+### Enhanced  
+- **Dockerfile optimization**: Complete refactor using a multi-stage build  
+  - Smaller image size, clear separation between build and runtime stages  
+  - Pinned dependencies and applied Docker security best practices  
+  - _Files: `Dockerfile` (major refactor)_  
+  - Credit: Dockerfile optimization contributed by [@Erwan-loot](https://github.com/Erwan-loot)  
+
+- **Git configuration**: Enforced LF line endings for shell scripts  
+  - _Files: `.gitattributes`_  
+
+- **OIDC handler improvements**: Refactored authentication handler for maintainability  
+  - _Files: `backend/oidc_handler.py`_  
+
+- **Database handler enhancements**: Improved connection and query management  
+  - _Files: `backend/db_handler.py`_  
+
+- **Add Warranty modal tabs – responsive alignment**  
+  - Adjusted label size and spacing below ≤740px to prevent wrapping  
+  - Maintains icon+label pairing; five-step indicator consistent across breakpoints  
+  - _Files: `frontend/style.css`_  
+
+- **Frontend cache busting and version updates**  
+  - Updated service worker cache and version checker for new logic  
+  - Ensured clients receive updated assets  
+  - _Files: `frontend/sw.js`, `frontend/version-checker.js`, `frontend/*.html`_  
+
+- **PWA cache refresh and immediate activation**  
+  - Bumped service worker cache to `warracker-cache-v20251024001` and added `skipWaiting()` + `clients.claim()` for instant rollout.  
+  - Updated all `footer-fix.js` references to `?v=20251024001` and added to SW pre-cache to guarantee delivery of the scrollbar fix.  
+  - Cleaned service worker pre-cache by removing a duplicate `script.js` entry.  
+  - _Files: `frontend/sw.js`, `frontend/*.html`_  
+
+
+- **Search enhancements**: Include Model Number in search across Home and Status  
+  - Main view: Added `model_number` matching in quick search and filter pipeline; updated placeholder to mention model  
+  - Status page: Enabled search by `model_number` in the recent expirations table  
+  - Backend: Included `model_number` in statistics responses to support status page search  
+  - _Files: `frontend/script.js`, `frontend/status.js`, `backend/statistics_routes.py`, `frontend/index.html`, `locales/en/translation.json`_  
+
+- **Status page – Archived support**: Archived warranties are now first-class on the dashboard  
+  - Added "Archived" to the Status filter on the Recently Expired or Expiring Soon table  
+  - Rows show an "Archived" status with neutral grey styling that matches warranty cards  
+  - Backend statistics endpoints now include `is_archived` to power filtering and labels  
+  - Updated table filtering/sorting: archived items are excluded from Active/Expiring/Expired, appear under All and Archived, and sort with proper priority  
+  - _Files: `backend/statistics_routes.py`, `frontend/status.html`, `frontend/status.js`, `frontend/style.css`_  
+
+
+### Fixed  
+- **Global warranties view**: Global view on Index page now properly displays warranties from all users  
+  - Backend: Added `GET /api/warranties/global/archived` and unified global queries using correlated subqueries to avoid row collapse  
+  - Frontend: When scope = Global and Status = "All", merges archived warranties via the new endpoint  
+  - Archived Global view now uses the correct global archived endpoint  
+  - Cache bust applied to ensure updated logic  
+  - _Files: `backend/warranties_routes.py`, `frontend/script.js`, `frontend/sw.js`, `frontend/index.html`, `frontend/status.html`_  
+
+- **Global view: Model Number display**  
+  - Backend: Included `model_number` in global and archived global warranty queries so the UI can render it correctly  
+  - _Files: `backend/warranties_routes.py`_  
+
+- **Localization completeness: Model Number labels across all languages**  
+  - Added `warranties.model_number` and `warranties.model_number_optional` to all locales so warranty cards and forms display localized labels  
+  - Fixed Polish locale: added missing `warranties.model_number`; removed duplicate keys in warranties/messages  
+  - _Files: `locales/ar/translation.json`, `locales/cs/translation.json`, `locales/de/translation.json`, `locales/es/translation.json`, `locales/fa/translation.json`, `locales/fr/translation.json`, `locales/nl/translation.json`, `locales/ru/translation.json`, `locales/zh_CN/translation.json`, `locales/zh_HK/translation.json`, `locales/it/translation.json`, `locales/tr/translation.json`, `locales/uk/translation.json`, `locales/hi/translation.json`, `locales/ja/translation.json`, `locales/ko/translation.json`, `locales/pl/translation.json`, `locales/pt/translation.json`_  
+
+- **Add Warranty modal tabs: tiny-screen overlap**  
+  - Prevented tab labels from overlapping on very small devices (≤430px) by switching to icon-only tabs and enabling horizontal scrolling within the tab bar.  
+  - _Files: `frontend/style.css`_  
+
+- **Document URL links not visible unless notes existed**  
+  - Fixed warranty cards hiding the document links row when only external URLs were provided (Invoice/Manual/Files). The visibility check now includes `invoice_url`, `manual_url`, and `other_document_url`, so URL-only links render without requiring a note or uploaded file.  
+  - _Files: `frontend/script.js`_  
+
+- **Chrome: extra page horizontal scrollbar**  
+  - Removed `100vw` width and negative margin hacks from the footer script that caused horizontal overflow in Chrome; now uses `width: 100%` with zero side margins.  
+  - _Files: `frontend/footer-fix.js`_  
+
+### Dependencies  
+**Major updates:**  
+- **Python**: 3.13 → 3.14 (Docker base image)  
+- **gevent**: 24.2.1 → 25.9.1  
+- **flask-cors**: 4.0.1 → 6.0.1  
+- **Font Awesome**: 6.4.0 → 7.x  
+- **postgresql-client**: 15.10 → 17  
+
+**Minor/patch updates:**  
+- **Flask**: 3.0.3 → 3.1.2  
+- **Werkzeug**: 3.0.3 → 3.1.3  
+- **psycopg2**: 2.9.9 → 2.9.11  
+- **PyJWT**: 2.8.0 → 2.10.1  
+- **email-validator**: 2.1.1 → 2.3.0  
+- **APScheduler**: 3.10.4 → 3.11.0  
+- **python-dateutil**: 2.9.0 → 2.9.0.post0  
+- **Authlib**: 1.3.1 → 1.6.5  
+- **requests**: 2.32.3 → 2.32.5  
+- **setuptools**: <81 → 80.9.0  
+- **apprise**: 1.9.3 → 1.9.5  
+- **Babel**: 2.16.0 → 2.17.0  
+- **renovatebot/github-action**: v43.0.16 → v43.0.17  
+_Files: `backend/requirements.txt`, `Dockerfile`_  
+
+
+### Migration Notes  
+- Database migration **049** updates the `users.preferred_language` constraint to include 'pl'  
+- Database migration **047** adds the `model_number` column (auto-runs on startup)  
+- Rebuild Docker image for **Python 3.14** and updated dependencies  
+- Verify **CORS** compatibility with `flask-cors` v6  
+- Confirm **Font Awesome v7** icons render correctly  
+- Ensure PostgreSQL server compatibility with **client v17**  
+
 
 ## 0.10.1.14 - 2025-10-06
 

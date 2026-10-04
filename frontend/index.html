@@ -2,7 +2,7 @@
 <html>
 <head>
     <!-- Authentication redirect script -->
-    <script src="auth-redirect.js?v=20250119001" data-protected="true"></script>
+    <script src="auth-redirect.js?v=20260518001" data-protected="true"></script>
     
     <!-- Include authentication script first to handle login state immediately -->
     <script src="include-auth-new.js?v=20250119001"></script>
@@ -26,7 +26,7 @@
     <script src="theme-loader.js?v=20250119001"></script> <!-- Apply theme early -->
 
     <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css?v=20261001001">
     <!-- Load header fix styles to ensure consistent header styling -->
     <link rel="stylesheet" href="header-fix.css?v=20250119001">
     <!-- Load fix for auth buttons -->
@@ -184,7 +184,7 @@
                             <button id="searchBtn" class="search-btn" title="Search">
                                 <i class="fas fa-search"></i>
                             </button>
-                            <input type="text" id="searchWarranties" data-i18n-placeholder="warranties.search_placeholder" placeholder="Find by name, vendors, notes, tag, or serial number..." style="width: 100%;">
+                            <input type="text" id="searchWarranties" data-i18n-placeholder="warranties.search_placeholder" placeholder="Find by name, model, vendors, notes, tag, or serial number..." style="width: 100%;">
                             <button id="clearSearch" class="clear-search-btn" title="Clear search" style="display: none;">
                                 <i class="fas fa-times"></i>
                             </button>
@@ -545,7 +545,7 @@
                                     </div>
                                     
                                     <div class="form-group">
-                                        <label data-i18n="warranties.invoice_receipt">Invoice/Receipt</label>
+                                        <label data-i18n="warranties.invoice_receipt_short">Invoice</label>
                                         <!-- Storage Selection -->
                                         <div id="invoiceStorageSelection" class="storage-selection" style="display: none;">
                                             <div class="storage-options">
@@ -733,7 +733,7 @@
                                                 <span id="summary-product-photo" class="summary-value">-</span>
                                             </div>
                                             <div class="summary-item">
-                                                <span class="summary-label" data-i18n="warranties.invoice_receipt">Invoice/Receipt:</span>
+                                                <span class="summary-label" data-i18n="warranties.invoice_receipt_short">Invoice:</span>
                                                 <span id="summary-invoice" class="summary-value">-</span>
                                             </div>
                                             <div class="summary-item">
@@ -951,7 +951,7 @@
                         </div>
                         
                         <div class="form-group">
-                            <label data-i18n="warranties.invoice_receipt">Invoice/Receipt</label>
+                            <label data-i18n="warranties.invoice_receipt_short">Invoice</label>
                             <!-- Storage Selection -->
                             <div id="editInvoiceStorageSelection" class="storage-selection" style="display: none;">
                                 <div class="storage-options">
@@ -1325,8 +1325,9 @@
         <div class="loading-spinner"></div>
     </div>
     
+    <script type="module" src="js/index.js?v=20260518004"></script>
     <script src="auth.js?v=20250119001"></script>
-    <script src="script.js?v=20250119002"></script>
+    <script src="script.js?v=20260518002"></script>
     <script>
         // Lightweight UI logic for Filter/Sort popovers (no change to core logic)
         document.addEventListener('DOMContentLoaded', function () {
@@ -1635,7 +1636,7 @@
     </script>
 
     <!-- Footer Width Fix -->
-    <script src="footer-fix.js?v=20250119001"></script>
+    <script src="footer-fix.js?v=20251024001"></script>
     
     <!-- Footer Content Manager -->
     <script src="footer-content.js?v=20250119001"></script>

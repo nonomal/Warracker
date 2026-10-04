@@ -1,5 +1,6 @@
+# syntax=docker/dockerfile:1.27.0@sha256:bde3983e9c939224420ddaf6b784cc30e09b035a4dea01f581230c50809f372e
 
-FROM python:3.13-slim-trixie AS builder
+FROM python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS builder
 
 # Install build tools (only in builder stage)
 RUN apt-get update && \
@@ -20,7 +21,7 @@ COPY backend/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 
-FROM python:3.13-slim-trixie AS runtime
+FROM python:3.13-slim-trixie@sha256:7c61056e61ac89e852de05f3dc6fa51a6dd2181797bceed46aa725dd7cb2cd3b AS runtime
 
 # Metadata for final image
 LABEL org.opencontainers.image.source="https://github.com/sassanix/Warracker"
@@ -31,13 +32,15 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         nginx \
         supervisor \
+        logrotate \
+        cron \
         postgresql-client \
         gettext-base \
         curl \
         ca-certificates \
         libpq5 \
-        libcurl4 \
-        libssl3 && \
+        libcurl4t64 \
+        libssl3t64 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -68,7 +71,7 @@ COPY --chown=warracker:warracker backend/migrations/ ./migrations/
 COPY --chown=warracker:warracker locales/ ./locales/
 COPY --chown=warracker:warracker locales/ /var/www/html/locales/
 
-# 4. Frontend (bundled in one instruction)
+# 4. Frontend (static files, no build step)
 COPY --chown=warracker:warracker frontend/ /var/www/html/
 
 # 5. Backend (bundled in one instruction)
@@ -78,6 +81,7 @@ COPY --chown=warracker:warracker backend/app.py backend/gunicorn_config.py ./
 
 # Copy configuration files and scripts from Docker directory
 COPY --chown=root:root Docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY --chown=root:root Docker/logrotate-nginx /etc/logrotate.d/nginx-warracker
 COPY --chown=warracker:warracker Docker/entrypoint.sh /app/entrypoint.sh
 COPY --chown=root:root Docker/nginx-wrapper.sh /app/nginx-wrapper.sh
 
@@ -93,9 +97,11 @@ ENV PYTHONUNBUFFERED=1 \
 # Clean default nginx site
 RUN rm -f /etc/nginx/sites-enabled/default
 
-# Optimized health check
+# Optimized health check - hits the backend's /api/health (which verifies DB
+# connectivity) so a frozen backend is detected instead of the container
+# reporting healthy via nginx alone (see issue #239).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost/api/health 2>/dev/null || curl -f http://localhost/ || exit 1
+    CMD curl -f http://localhost/api/health || exit 1
 
 # Exposed port
 EXPOSE 80

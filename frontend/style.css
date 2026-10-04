@@ -259,7 +259,7 @@ header .container {
 
 @media (max-width: 768px) {
   .main-content {
-    grid-template-columns: 1fr;
+    grid-template-columns: 0fr 1fr;
   }
 }
 
@@ -429,6 +429,26 @@ input.invalid {
   .form-tab { padding: 10px 4px; gap: 4px; }
   .form-tab i { margin-right: 4px; font-size: 0.95rem; }
   .form-tab span { display: inline; font-size: 0.85rem; }
+}
+
+/* Extra small screens: prevent tab labels from cramping in Add Warranty modal */
+@media (max-width: 430px) {
+  #addWarrantyModal .form-tabs {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  #addWarrantyModal .form-tab {
+    padding: 10px 4px;
+    gap: 0;
+  }
+  #addWarrantyModal .form-tab span {
+    display: none; /* show icons only to keep tabs readable */
+  }
+  #addWarrantyModal .form-tab i {
+    margin-right: 0;
+    font-size: 1.05rem;
+  }
 }
 
 @keyframes fade-in {
@@ -742,6 +762,8 @@ input.invalid {
   border-radius: var(--border-radius);
   box-shadow: var(--shadow);
   overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
   transition: var(--transition);
   border: 1px solid var(--border-color);
   display: flex;
@@ -858,11 +880,15 @@ input.invalid {
 .warranty-details div {
   margin-bottom: 8px;
   font-size: 0.95rem;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .warranty-details span {
   font-weight: 500;
   color: var(--text-color);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .warranty-status {
@@ -889,6 +915,18 @@ input.invalid {
 .status-expiring {
   background-color: rgba(241, 196, 15, 0.15);
   color: #f39c12;
+}
+
+/* Ensure all status badges share the same shape/spacing */
+.status-active,
+.status-expired,
+.status-expiring,
+.status-archived {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
 .serial-numbers {
@@ -1155,6 +1193,7 @@ input.invalid {
   top: 20px;
   right: 20px;
   z-index: 1001;
+  pointer-events: none;
 }
 
 .toast {
@@ -1166,6 +1205,7 @@ input.invalid {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  pointer-events: auto;
   animation: slide-in 0.3s ease, fade-out 0.3s ease 2.7s forwards;
 }
 
@@ -1176,7 +1216,14 @@ input.invalid {
 
 @keyframes fade-out {
   from { opacity: 1; }
-  to { opacity: 0; }
+  to { opacity: 0; visibility: hidden; }
+}
+
+/* Fading toasts must not intercept clicks while invisible (issue #197) */
+.toast-fade-out {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 .toast-success {
@@ -1319,7 +1366,7 @@ input.invalid {
   /* End Header Responsive Styles */
 
   .main-content {
-    grid-template-columns: 1fr;
+    grid-template-columns: 0fr 1fr;
   }
   
   .form-panel, .warranties-panel {
@@ -1591,6 +1638,81 @@ input:checked + .toggle-slider:before {
 
 .status-card[data-status="total"] .card-icon {
     color: #3498db;
+}
+
+.status-card[data-status="total_value"] .card-icon {
+    color: #9b59b6;
+}
+
+.status-card[data-status="total_value"] {
+    cursor: pointer;
+    position: relative;
+}
+
+.status-card[data-status="total_value"]:focus-visible {
+    outline: 2px solid #9b59b6;
+    outline-offset: 2px;
+}
+
+.status-card[data-status="total_value"] .info-hint {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 0.85rem;
+    color: var(--dark-gray);
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.status-card[data-status="total_value"] .card-content {
+    min-width: 0;
+}
+
+.status-card[data-status="total_value"] .count {
+    font-size: 1.4rem;
+    white-space: nowrap;
+}
+
+.info-popover {
+    display: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    min-width: 230px;
+    max-width: 300px;
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 0.85rem;
+    font-weight: 400;
+    line-height: 1.5;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    z-index: 60;
+}
+
+.info-popover.show {
+    display: block;
+}
+
+.info-popover::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 28px;
+    border: 8px solid transparent;
+    border-bottom-color: var(--border-color);
+}
+
+.info-popover::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 29px;
+    border: 7px solid transparent;
+    border-bottom-color: var(--card-bg);
+    z-index: 1;
 }
 
 .card-icon {
@@ -3706,6 +3828,12 @@ input.invalid {
   color: var(--dark-gray);
 }
 
+/* Status badge for Archived on status page table */
+.status-archived {
+  background-color: rgba(128, 128, 128, 0.12);
+  color: var(--dark-gray);
+}
+
 /* List view status row styling */
 .list-view .warranty-status-row {
   text-align: center;
@@ -3819,6 +3947,14 @@ input.invalid {
 
 .edit-tab-btn i {
     margin-right: 0.5rem;
+}
+
+@media (max-width: 480px) {
+    /* Tabs stay swipeable on phones; fade the right edge to hint there's more */
+    .edit-tabs-nav {
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent 100%);
+        mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent 100%);
+    }
 }
 
 .edit-tab-content {
@@ -4213,7 +4349,7 @@ input.invalid {
 
   /* Adjust existing rules within the media query */
   .main-content {
-    grid-template-columns: 1fr;
+    grid-template-columns: 0fr 1fr;
   }
 }
 
@@ -4704,6 +4840,20 @@ html.dark-mode .warracker-footer a:hover {
     object-fit: cover;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     background-color: #f5f5f5;
+}
+
+/* Secure image - hidden until loaded to prevent flicker */
+.product-photo-thumbnail img.secure-image {
+    opacity: 0;
+    transition: opacity 0.15s ease-in;
+}
+
+.product-photo-thumbnail img.secure-image.loaded {
+    opacity: 1;
+}
+
+:root[data-theme="dark"] .product-photo-thumbnail img {
+    background-color: #3a3a3a;
 }
 
 .product-photo-thumbnail img:hover {

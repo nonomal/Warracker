@@ -20,6 +20,7 @@ The easiest way to organize product warranties, monitor expiration dates, and st
 ![GitHub release](https://img.shields.io/github/v/release/sassanix/Warracker)
 ![GitHub contributors](https://img.shields.io/github/contributors/sassanix/Warracker)
 [![Discord](https://img.shields.io/badge/discord-chat-green?logo=discord)](https://discord.gg/PGxVS3U2Nw)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/sassanix/Warracker)
 
 <p align="center">
   <img src="images/demo2.gif" alt="Warracker Demo" width="650">
@@ -63,14 +64,14 @@ The easiest way to organize product warranties, monitor expiration dates, and st
 | 📊 **Status Dashboard**          | Visual analytics and stats with charts, tables, and global/user views                                    |
 | 📱 **Responsive UI**             | Mobile-friendly interface with admin tools and improved UX                                               |
 | 📦 **Paperless-ngx Integration** | Store/manage documents directly in Paperless-ngx with file-level control                                 |
-| 📖 **Localization Support**      | [Full multilingual UI with 18 languages](https://github.com/sassanix/Warracker?tab=readme-ov-file#-localization-support), RTL support, instant language switching, and native name display |
+| 📖 **Localization Support**      | [Full multilingual UI with 20 languages](https://github.com/sassanix/Warracker?tab=readme-ov-file#-localization-support), RTL support, instant language switching, and native name display |
 
 
 ---
 
 ## Project Status
 
-**Warracker is in active beta.**
+**Warracker is in active development.**
 The essential features are reliable and ready for everyday use. Development is ongoing, with regular updates and improvements.
 
 * ✅ Stable core for tracking, notification , and managing warranty documents, files
@@ -114,7 +115,7 @@ The essential features are reliable and ready for everyday use. Development is o
 * ✅ Paperless-ngx integration
 * ✅ Localization Support
 * ✅ Warranty Claim Tracking
-* [ ] Audit trail
+* ✅ Audit trail
 * [ ] Calendar Integration
       
 ## 🚀Setup
@@ -185,6 +186,8 @@ To get the docker compose file with environemts and .env example for warracker a
 <details>
 <summary><strong>Product Information Entry Requirements for CSV import</strong></summary>
 
+Click on **Data** > **Import**
+
 | Field Name     | Format / Example                          | Required?                                              | Notes                                                                 |
 |----------------|-------------------------------------------|--------------------------------------------------------|-----------------------------------------------------------------------|
 | **ProductName** | Text                                       | ✅ Yes                                                  | Provide the name of the product.                                     |
@@ -192,6 +195,7 @@ To get the docker compose file with environemts and .env example for warracker a
 | **WarrantyDurationYears** | Whole Number (`0`, `1`, `5`)      | ✅ Yes, if `IsLifetime` is `FALSE` and Months/Days are 0/blank. At least one duration field (Years, Months, Days) must be non-zero if not lifetime. | Represents the years part of the warranty. Can be combined with Months and Days. |
 | **WarrantyDurationMonths** | Whole Number (`0`, `6`, `18`)    | ✅ Yes, if `IsLifetime` is `FALSE` and Years/Days are 0/blank. At least one duration field (Years, Months, Days) must be non-zero if not lifetime. | Represents the months part of the warranty. Can be combined with Years and Days. Max 11 if Years also provided. |
 | **WarrantyDurationDays** | Whole Number (`0`, `15`, `90`)     | ✅ Yes, if `IsLifetime` is `FALSE` and Years/Months are 0/blank. At least one duration field (Years, Months, Days) must be non-zero if not lifetime. | Represents the days part of the warranty. Can be combined with Years and Months. Max 29/30 if Months also provided. |
+| **ExpirationDate** | Date (`YYYY-MM-DD`, e.g., `2031-10-08`)   | ❌ No (Optional)                                        | Use this if duration fields are 0 and `IsLifetime` is `FALSE`.       |
 | **IsLifetime**  | `TRUE` or `FALSE` (case-insensitive)       | ❌ No (Optional)                                        | If omitted, defaults to `FALSE`. If `TRUE`, duration fields are ignored. |
 | **PurchasePrice** | Number (`199.99`, `50`)                  | ❌ No (Optional)                                        | Cannot be negative if provided.                                      |
 | **SerialNumber** | Text (`SN123`, `SN123,SN456`)             | ❌ No (Optional)                                        | For multiple values, separate with commas.                           |
@@ -205,7 +209,7 @@ To get the docker compose file with environemts and .env example for warracker a
 
 ## 🌐 Localization Support
 
-Warracker offers **full multilingual UI support** with **18 languages**, including **RTL (Right-to-Left) support**, instant language switching, and native name display.
+Warracker offers **full multilingual UI support** with **20 languages**, including **RTL (Right-to-Left) support**, instant language switching, and native name display.
 
 <details>
     
@@ -218,7 +222,7 @@ Warracker offers **full multilingual UI support** with **18 languages**, includi
 | <img src="https://flagcdn.com/16x12/de.png" width="16" height="12" alt="DE"> German | de | Deutsch | |
 | <img src="https://flagcdn.com/16x12/gb.png" width="16" height="12" alt="GB"> English | en | English | *Default* |
 | <img src="https://flagcdn.com/16x12/es.png" width="16" height="12" alt="ES"> Spanish | es | Español | |
-| <img src="https://flagcdn.com/16x12/ir.png" width="16" height="12" alt="IR"> Persian | fa | فارسی | *RTL Support* |
+| <img src="https://abs.twimg.com/responsive-web/client-web/1f1ee-1f1f7.4a41f56a.svg" width="16" height="12" alt="IR"> Persian | fa | فارسی | *RTL Support* |
 | <img src="https://flagcdn.com/16x12/fr.png" width="16" height="12" alt="FR"> French | fr | Français | |
 | <img src="https://flagcdn.com/16x12/in.png" width="16" height="12" alt="IN"> Hindi | hi | हिन्दी | |
 | <img src="https://flagcdn.com/16x12/it.png" width="16" height="12" alt="IT"> Italian | it | Italiano | |
@@ -231,6 +235,8 @@ Warracker offers **full multilingual UI support** with **18 languages**, includi
 | <img src="https://flagcdn.com/16x12/cn.png" width="16" height="12" alt="CN"> Chinese (Simplified) | zh_CN | 简体中文 | |
 | <img src="https://flagcdn.com/16x12/hk.png" width="16" height="12" alt="HK"> Chinese (Hong Kong) | zh_HK | 繁體中文 (香港) | |
 | <img src="https://flagcdn.com/16x12/tr.png" width="16" height="12" alt="TR"> Turkish | tr | Türkçe | |
+| <img src="https://flagcdn.com/16x12/pl.png" width="16" height="12" alt="PL"> Polish | pl | Polski | |
+| <img src="https://flagcdn.com/16x12/il.png" width="16" height="12" alt="IL"> Hebrew | he | עברית | *RTL Support* |
 
 ---
 

@@ -33,6 +33,31 @@ logger = logging.getLogger(__name__)
 
 warranties_bp = Blueprint('warranties_bp', __name__)
 
+# Map of currency symbols to ISO codes (mirrors frontend js/lib/currency.js).
+# Used to resolve a user's preferred currency symbol to a code for new warranties.
+SYMBOL_TO_CURRENCY_CODE = {
+    '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY', '₹': 'INR', '₩': 'KRW',
+    'CHF': 'CHF', 'C$': 'CAD', 'A$': 'AUD', 'kr': 'SEK', 'zł': 'PLN',
+    'Kč': 'CZK', 'Ft': 'HUF', '₽': 'RUB', 'R$': 'BRL', '₪': 'ILS',
+    '₺': 'TRY', 'NZ$': 'NZD',
+}
+
+def get_user_currency_code(user_id):
+    """Return the user's preferred currency code, falling back to 'USD'."""
+    try:
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT currency_symbol FROM user_preferences WHERE user_id = %s", (user_id,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    return SYMBOL_TO_CURRENCY_CODE.get(row[0], 'USD')
+        finally:
+            release_db_connection(conn)
+    except Exception as e:
+        logger.warning(f"Could not load preferred currency for user {user_id}: {e}")
+    return 'USD'
+
 
 
 def convert_decimals(obj):
@@ -192,6 +217,10 @@ def add_warranty():
         # Validate input data
         if not request.form.get('product_name'):
             return jsonify({"error": "Product name is required"}), 400
+
+        if len(request.form.get('product_name')) > 255:
+            return jsonify({"error": "Product name must be 255 characters or less",
+                            "code": "product_name_too_long"}), 400
             
         if not request.form.get('purchase_date'):
             return jsonify({"error": "Purchase date is required"}), 400
@@ -276,8 +305,8 @@ def add_warranty():
             except ValueError:
                 return jsonify({"error": "Purchase price must be a valid number"}), 400
         
-        # Handle currency (optional, defaults to USD)
-        currency = request.form.get('currency', 'USD')
+        # Handle currency (optional, defaults to the user's preferred currency)
+        currency = request.form.get('currency') or get_user_currency_code(user_id)
         # Validate currency code
         valid_currencies = [
             'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'INR', 'KRW', 'CHF', 'CAD', 'AUD',
@@ -325,7 +354,12 @@ def add_warranty():
             else:
                 # Neither exact date nor duration provided
                 return jsonify({"error": "Either exact expiration date or warranty duration must be specified for non-lifetime warranties."}), 400
-        
+
+        # Expiration date cannot precede the purchase date
+        if expiration_date is not None and expiration_date < purchase_date:
+            return jsonify({"error": "Expiration date cannot be before purchase date",
+                            "code": "expiration_before_purchase"}), 400
+
         # Handle Paperless-ngx document IDs if provided (check before file uploads)
         paperless_invoice_id = request.form.get('paperless_invoice_id')
         paperless_manual_id = request.form.get('paperless_manual_id')
@@ -502,7 +536,10 @@ def toggle_archive_warranty(warranty_id):
 
         if not request.is_json:
             return jsonify({"error": "Request must be JSON"}), 400
-        archived_flag = request.json.get('archived')
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "Request body must be valid JSON"}), 400
+        archived_flag = data.get('archived')
         if archived_flag is None:
             return jsonify({"error": "Missing 'archived' boolean in request body"}), 400
 
@@ -617,12 +654,13 @@ def update_warranty(warranty_id):
         with conn.cursor() as cur:
             # Check if warranty exists and belongs to the user
             if is_admin:
-                cur.execute('SELECT id FROM warranties WHERE id = %s', (warranty_id,))
+                cur.execute('SELECT id, currency FROM warranties WHERE id = %s', (warranty_id,))
             else:
-                cur.execute('SELECT id FROM warranties WHERE id = %s AND user_id = %s', (warranty_id, user_id))
+                cur.execute('SELECT id, currency FROM warranties WHERE id = %s AND user_id = %s', (warranty_id, user_id))
             warranty = cur.fetchone()
             if not warranty:
                 return jsonify({"error": "Warranty not found or you don't have permission to update it"}), 404
+            existing_currency = warranty[1] if len(warranty) > 1 else None
 
             # --- PATCH: Support JSON-only notes update ---
             if request.is_json and 'notes' in request.json and len(request.json) == 1:
@@ -635,6 +673,9 @@ def update_warranty(warranty_id):
             # Validate input data similar to the add_warranty route
             if not request.form.get('product_name'):
                 return jsonify({"error": "Product name is required"}), 400
+            if len(request.form.get('product_name')) > 255:
+                return jsonify({"error": "Product name must be 255 characters or less",
+                                "code": "product_name_too_long"}), 400
             if not request.form.get('purchase_date'):
                 return jsonify({"error": "Purchase date is required"}), 400
             logger.info(f"Received update request for warranty {warranty_id}")
@@ -704,7 +745,12 @@ def update_warranty(warranty_id):
                             return jsonify({"error": "Failed to calculate expiration date from duration components"}), 500
                     else:
                         return jsonify({"error": "Either exact expiration date or warranty duration must be specified for non-lifetime warranties."}), 400
-            
+
+            # Expiration date cannot precede the purchase date
+            if expiration_date is not None and expiration_date < purchase_date:
+                return jsonify({"error": "Expiration date cannot be before purchase date",
+                                "code": "expiration_before_purchase"}), 400
+
             logger.info(f"Calculated values: Y={warranty_duration_years}, M={warranty_duration_months}, D={warranty_duration_days}, expiration_date={expiration_date}")
             product_name = request.form['product_name']
             serial_numbers = request.form.getlist('serial_numbers[]') # Ensure correct parsing for lists
@@ -735,8 +781,8 @@ def update_warranty(warranty_id):
                 except ValueError:
                     return jsonify({"error": "Purchase price must be a valid number"}), 400
             
-            # Handle currency (optional, defaults to USD)
-            currency = request.form.get('currency', 'USD')
+            # Handle currency (optional, keep existing, else user's preferred currency)
+            currency = request.form.get('currency') or existing_currency or get_user_currency_code(user_id)
             # Validate currency code
             valid_currencies = [
                 'USD', 'EUR', 'GBP', 'JPY', 'CNY', 'INR', 'KRW', 'CHF', 'CAD', 'AUD',
@@ -1131,19 +1177,47 @@ def import_warranties():
     conn = None
     imported_count = 0
     failed_rows = []
+    used_name_date_pairs = set()  # Track names used in this import for a given purchase_date
     row_number = 1 # Start from 1 for header
 
     # Required and optional CSV headers
     REQUIRED_CSV_HEADERS = ['ProductName', 'PurchaseDate']
     OPTIONAL_CSV_HEADERS = [
-        'IsLifetime', 'PurchasePrice', 'SerialNumber', 'ProductURL', 'Tags', 'Vendor', 'WarrantyType',
-        'WarrantyDurationYears', 'WarrantyDurationMonths', 'WarrantyDurationDays'
+        'ExpirationDate', 'IsLifetime', 'PurchasePrice', 'SerialNumber', 'ProductURL', 'Tags', 'Vendor', 'WarrantyType',
+        'WarrantyDurationYears', 'WarrantyDurationMonths', 'WarrantyDurationDays',
+        'Notes', 'Currency', 'ModelNumber',
     ]
 
+    def _parse_list_field(raw):
+        """Parse a Tags/SerialNumber cell. New exports JSON-encode the list
+        (so values containing commas round-trip); fall back to comma-split
+        for hand-written or legacy files."""
+        raw = (raw or '').strip()
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except (ValueError, TypeError):
+            pass
+        return [x.strip() for x in raw.split(',') if x.strip()]
+
     try:
-        # Read the file content
-        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+        # Read the file content. utf-8-sig strips a BOM, which Excel and
+        # other tools commonly prepend (issue #236: the first header then
+        # reads as '\ufeffProductName' and fails validation).
+        stream = io.StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
         csv_reader = csv.DictReader(stream)
+
+        # Normalize headers: strip whitespace/BOM remnants and match
+        # case-insensitively against the documented header names.
+        canonical = {h.lower(): h for h in REQUIRED_CSV_HEADERS + OPTIONAL_CSV_HEADERS}
+        normalized_fieldnames = []
+        for h in (csv_reader.fieldnames or []):
+            key = (h or '').strip().lower()
+            normalized_fieldnames.append(canonical.get(key, (h or '').strip()))
+        csv_reader.fieldnames = normalized_fieldnames
 
         # Validate headers
         headers = csv_reader.fieldnames
@@ -1184,6 +1258,10 @@ def import_warranties():
                     tags_str = row.get('Tags', '').strip() # Get Tags string
                     vendor = row.get('Vendor', '').strip() # Extract Vendor
                     warranty_type = row.get('WarrantyType', '').strip() # Extract Warranty Type
+                    expiration_date_str = row.get('ExpirationDate', '').strip()
+                    notes = row.get('Notes', '').strip() or None # Extract Notes
+                    model_number = row.get('ModelNumber', '').strip() or None # Extract Model Number
+                    currency_str = row.get('Currency', '').strip().upper() # Extract Currency
 
                     if not product_name:
                         errors.append("ProductName is required.")
@@ -1212,8 +1290,13 @@ def import_warranties():
 
                             if warranty_duration_years < 0 or warranty_duration_months < 0 or warranty_duration_days < 0:
                                 errors.append("Warranty duration components cannot be negative.")
-                            if warranty_duration_years == 0 and warranty_duration_months == 0 and warranty_duration_days == 0:
-                                errors.append("Warranty duration (Years, Months, or Days) is required unless IsLifetime is TRUE.")
+                            if (
+                                warranty_duration_years == 0 and
+                                warranty_duration_months == 0 and
+                                warranty_duration_days == 0 and
+                                not expiration_date_str
+                            ):
+                                errors.append("Either duration (Years, Months, Days) or an ExpirationDate is required unless IsLifetime is TRUE.")
                             if warranty_duration_years > 999:
                                 errors.append("WarrantyDurationYears must be 999 or less.")
                         except ValueError:
@@ -1230,27 +1313,47 @@ def import_warranties():
 
                     # Calculate expiration date if valid
                     if not errors and not is_lifetime and purchase_date:
-                        if warranty_duration_years > 0 or warranty_duration_months > 0 or warranty_duration_days > 0:
+                        expiration_date_str = row.get('ExpirationDate', '').strip()
+                        # Check if duration is zero and an exact expiration date is provided
+                        if (
+                            warranty_duration_years == 0 and
+                            warranty_duration_months == 0 and
+                            warranty_duration_days == 0 and
+                            expiration_date_str
+                        ):
+                            try:
+                                expiration_date = date_parse(expiration_date_str).date()
+                                if expiration_date < purchase_date:
+                                    errors.append("ExpirationDate cannot be before PurchaseDate.")
+                            except ValueError:
+                                errors.append("Invalid ExpirationDate format. Use YYYY-MM-DD.")
+                        # Existing duration calculation logic
+                        elif (
+                            warranty_duration_years > 0 or
+                            warranty_duration_months > 0 or
+                            warranty_duration_days > 0
+                        ):
                             try:
                                 expiration_date = purchase_date + relativedelta(
                                     years=warranty_duration_years,
                                     months=warranty_duration_months,
                                     days=warranty_duration_days
                                 )
-                                logger.info(f"[Import] Calculated expiration date: {expiration_date} for row {row_number}")
                             except Exception as calc_err:
                                 logger.error(f"[Import] Error calculating expiration date for row {row_number}: {calc_err}")
                                 errors.append("Failed to calculate expiration date from duration components.")
                                 expiration_date = None
-                        # No else needed here, error for missing duration already handled
+                        # If no duration and no exact date is provided for a non-lifetime warranty
+                        else:
+                            errors.append("Either duration (Years, Months, Days) or an ExpirationDate is required unless IsLifetime is TRUE.")
 
-                    # Split serial numbers
-                    serial_numbers = [sn.strip() for sn in serial_numbers_str.split(',') if sn.strip()] if serial_numbers_str else []
+                    # Split serial numbers (JSON list from new exports, comma-separated legacy)
+                    serial_numbers = _parse_list_field(serial_numbers_str)
 
                     # --- Process Tags --- 
                     tag_ids_to_link = []
                     if tags_str:
-                        tag_names = [name.strip() for name in tags_str.split(',') if name.strip()]
+                        tag_names = _parse_list_field(tags_str)
                         if tag_names:
                             # Find existing tag IDs (case-insensitive) for THIS USER
                             placeholders = ', '.join(['%s'] * len(tag_names))
@@ -1301,14 +1404,25 @@ def import_warranties():
                             if processed_tag_ids:
                                 tag_ids_to_link = list(set(processed_tag_ids)) # Ensure unique IDs
 
-                    # --- Check for Duplicates --- 
+                    # --- Check for Duplicates and auto-append suffix --- 
                     if not errors and product_name and purchase_date:
-                        cur.execute("""
-                            SELECT id FROM warranties 
-                            WHERE user_id = %s AND product_name = %s AND purchase_date = %s
-                        """, (user_id, product_name, purchase_date))
-                        if cur.fetchone(): # Correctly indented
-                            errors.append("Duplicate warranty found (same product name and purchase date).")
+                        def is_name_taken(name_candidate):
+                            cur.execute(
+                                "SELECT 1 FROM warranties WHERE user_id = %s AND product_name = %s AND purchase_date = %s LIMIT 1",
+                                (user_id, name_candidate, purchase_date)
+                            )
+                            return cur.fetchone() is not None or (name_candidate, purchase_date) in used_name_date_pairs
+
+                        if is_name_taken(product_name):
+                            base_name = product_name
+                            suffix_index = 1
+                            while True:
+                                candidate_name = f"{base_name} ({suffix_index})"
+                                if not is_name_taken(candidate_name):
+                                    logger.info(f"[Import] Duplicate detected for row {row_number}. Renaming '{base_name}' to '{candidate_name}' for purchase date {purchase_date}.")
+                                    product_name = candidate_name
+                                    break
+                                suffix_index += 1
                     
                     # --- If errors, skip row --- 
                     if errors:
@@ -1348,19 +1462,40 @@ def import_warranties():
                     except Exception as currency_err:
                         logger.error(f"[Import] Error getting user currency preference: {currency_err}, defaulting to USD")
 
+                    # --- Resolve row currency: explicit Currency column wins when valid ---
+                    row_currency = user_currency_code
+                    if currency_str:
+                        # Validate against the CHECK constraint's code list
+                        if currency_str in (
+                            'USD','EUR','GBP','JPY','CNY','INR','KRW','CHF','CAD','AUD',
+                            'SEK','NOK','DKK','PLN','CZK','HUF','BGN','RON','HRK','RUB',
+                            'BRL','MXN','ARS','CLP','COP','PEN','VES','ZAR','EGP','NGN',
+                            'KES','GHS','MAD','TND','AED','SAR','QAR','KWD','BHD','OMR',
+                            'JOD','LBP','ILS','TRY','IRR','PKR','BDT','LKR','NPR','BTN',
+                            'MMK','THB','VND','LAK','KHR','MYR','SGD','IDR','PHP','TWD',
+                            'HKD','MOP','KPW','MNT','KZT','UZS','KGS','TMT','AFN','AMD',
+                            'AZN','GEL','MDL','UAH','BYN','RSD','MKD','ALL','BAM','ISK',
+                            'FJD','PGK','SBD','TOP','VUV','WST','XPF','NZD'
+                        ):
+                            row_currency = currency_str
+                        else:
+                            logger.warning(f"[Import] Row {row_number}: unknown currency '{currency_str}', using {user_currency_code}")
+
                     # --- Insert into Database --- 
                     cur.execute("""
                         INSERT INTO warranties (
                             product_name, purchase_date, expiration_date, 
                             product_url, purchase_price, user_id, is_lifetime, vendor, warranty_type,
-                            warranty_duration_years, warranty_duration_months, warranty_duration_days, currency
+                            warranty_duration_years, warranty_duration_months, warranty_duration_days, currency,
+                            notes, model_number
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING id
                     """, (
                         product_name, purchase_date, expiration_date,
                         product_url, purchase_price, user_id, is_lifetime, vendor, warranty_type,
-                        warranty_duration_years, warranty_duration_months, warranty_duration_days, user_currency_code
+                        warranty_duration_years, warranty_duration_months, warranty_duration_days, row_currency,
+                        notes, model_number
                     ))
                     warranty_id = cur.fetchone()[0]
 
@@ -1381,6 +1516,9 @@ def import_warranties():
                                 ON CONFLICT (warranty_id, tag_id) DO NOTHING -- Avoid errors if somehow duplicated
                             """, (warranty_id, tag_id))
 
+                    # Track the used name+date pair to avoid collisions within the same CSV import
+                    used_name_date_pairs.add((product_name, purchase_date))
+
                     imported_count += 1
 
                 except Exception as e:
@@ -1389,21 +1527,31 @@ def import_warranties():
                     # Don't rollback yet, just record failure
 
             # --- Transaction Commit/Rollback --- 
-            if failed_rows:
-                conn.rollback() # Rollback if any row failed during processing or insertion
-                # Reset imported count if we rollback
-                final_success_count = 0 
-                # Modify errors for rows that might have been initially valid but failed due to rollback
-                final_failure_count = row_number - 1 # Total data rows processed
-                # Add a general error message
+            if imported_count > 0 and failed_rows:
+                # Partial success: commit successful rows and return 200 with error details for failed rows
+                conn.commit()
+                final_success_count = imported_count
+                final_failure_count = len(failed_rows)
                 return jsonify({
-                    "error": "Import failed due to errors in one or more rows. No warranties were imported.",
+                    "message": "CSV processed with some errors.",
+                    "success_count": final_success_count,
+                    "failure_count": final_failure_count,
+                    "errors": failed_rows
+                }), 200
+            elif imported_count == 0 and failed_rows:
+                # All rows failed: rollback and return 400
+                conn.rollback()
+                final_success_count = 0
+                final_failure_count = len(failed_rows)
+                return jsonify({
+                    "error": "Import failed due to errors in all rows. No warranties were imported.",
                     "success_count": 0,
                     "failure_count": final_failure_count,
-                    "errors": failed_rows 
+                    "errors": failed_rows
                 }), 400
             else:
-                conn.commit() # Commit transaction if all rows were processed successfully
+                # All rows succeeded
+                conn.commit()
                 final_success_count = imported_count
                 final_failure_count = len(failed_rows)
 
@@ -1547,7 +1695,7 @@ def get_global_warranties():
                     w.product_url, w.notes, w.purchase_price, w.user_id, w.created_at, w.updated_at, w.is_lifetime, 
                     w.vendor, w.warranty_type, w.warranty_duration_years, w.warranty_duration_months, w.warranty_duration_days, w.product_photo_path, w.currency,
                     w.paperless_invoice_id, w.paperless_manual_id, w.paperless_photo_id, w.paperless_other_id,
-                    w.invoice_url, w.manual_url, w.other_document_url,
+                    w.invoice_url, w.manual_url, w.other_document_url, w.model_number,
                     u.username, u.email, u.first_name, u.last_name,
                     CASE
                         WHEN EXISTS (
@@ -1660,7 +1808,7 @@ def get_global_warranties_archived():
                     w.product_url, w.notes, w.purchase_price, w.user_id, w.created_at, w.updated_at, w.is_lifetime, 
                     w.vendor, w.warranty_type, w.warranty_duration_years, w.warranty_duration_months, w.warranty_duration_days, w.product_photo_path, w.currency,
                     w.paperless_invoice_id, w.paperless_manual_id, w.paperless_photo_id, w.paperless_other_id,
-                    w.invoice_url, w.manual_url, w.other_document_url,
+                    w.invoice_url, w.manual_url, w.other_document_url, w.model_number,
                     u.username, u.email, u.first_name, u.last_name,
                     CASE
                         WHEN EXISTS (
@@ -2025,7 +2173,8 @@ def get_locales():
             'ja': '日本語',
             'pt': 'Português',
             'ko': '한국어',
-            'tr': 'Türkçe'
+            'tr': 'Türkçe',
+            'pl': 'Polski'
         }
         
         locales = []
@@ -2114,7 +2263,9 @@ def create_claim(warranty_id):
         # Validate status
         valid_statuses = ['Submitted', 'In Progress', 'Approved', 'Denied', 'Resolved', 'Cancelled']
         if status not in valid_statuses:
-            status = 'Submitted'
+            return jsonify({'error': f"Invalid claim status. Must be one of: {', '.join(valid_statuses)}",
+                            'code': 'invalid_claim_status',
+                            'valid_statuses': valid_statuses}), 400
 
         # Insert new claim
         cur.execute("""
@@ -2310,8 +2461,10 @@ def update_claim(warranty_id, claim_id):
         # Validate status
         valid_statuses = ['Submitted', 'In Progress', 'Approved', 'Denied', 'Resolved', 'Cancelled']
         if status not in valid_statuses:
-            status = current_claim[1]
-        
+            return jsonify({'error': f"Invalid claim status. Must be one of: {', '.join(valid_statuses)}",
+                            'code': 'invalid_claim_status',
+                            'valid_statuses': valid_statuses}), 400
+
         # Handle empty strings as None
         claim_number = claim_number.strip() if claim_number else None
         description = description.strip() if description else None

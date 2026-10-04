@@ -145,7 +145,9 @@ async function loadCurrenciesForSettings() {
             // Add currencies from API
             currencies.forEach(currency => {
                 const option = document.createElement('option');
-                option.value = currency.symbol;
+                // Use the code as the value: several currencies share a symbol
+                // (e.g. kr for SEK/NOK/DKK/ISK), and the code is unambiguous.
+                option.value = currency.code;
                 option.textContent = `${currency.symbol} (${currency.code} - ${currency.name})`;
                 currencySymbolSelect.appendChild(option);
             });
@@ -436,6 +438,12 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Setup Apprise event listeners
     setupAppriseEventListeners();
+
+    // Audit Trail button handler (admin section)
+    const viewAuditTrailBtn = document.getElementById('viewAuditTrailBtn');
+    if (viewAuditTrailBtn) {
+        viewAuditTrailBtn.addEventListener('click', loadAndDisplayAuditTrail);
+    }
     
     // Initialize delete button handling
     setupDeleteButton();
@@ -510,6 +518,76 @@ function initPage() {
     }
     
     console.log('Settings page initialization complete');
+}
+
+// ============================
+// Audit Trail functions
+// ============================
+
+async function loadAndDisplayAuditTrail() {
+    const displayArea = document.getElementById('auditTrailDisplay');
+    const loadingIndicator = document.getElementById('auditTrailLoading');
+    const table = document.getElementById('auditTrailTable');
+    const tableBody = document.getElementById('auditTrailTableBody');
+
+    if (!displayArea || !loadingIndicator || !table || !tableBody) return;
+
+    displayArea.style.display = 'block';
+    loadingIndicator.style.display = 'block';
+    table.style.display = 'none';
+    tableBody.innerHTML = '';
+
+    try {
+        const token = window.auth && window.auth.getToken ? window.auth.getToken() : localStorage.getItem('auth_token');
+        const response = await fetch('/api/admin/audit-trail?limit=200', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch audit log');
+        }
+
+        const logs = await response.json();
+        renderAuditTrail(logs);
+
+    } catch (error) {
+        console.error('Error loading audit trail:', error);
+        loadingIndicator.textContent = 'Error loading audit trail.';
+    }
+}
+
+function renderAuditTrail(logs) {
+    const loadingIndicator = document.getElementById('auditTrailLoading');
+    const table = document.getElementById('auditTrailTable');
+    const tableBody = document.getElementById('auditTrailTableBody');
+
+    loadingIndicator.style.display = 'none';
+
+    if (!Array.isArray(logs) || logs.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No audit records found.</td></tr>';
+    } else {
+        logs.forEach(log => {
+            const row = tableBody.insertRow();
+            const timestamp = log.timestamp ? new Date(log.timestamp).toLocaleString() : '';
+            const username = (log.username || 'System');
+            const action = (log.action || '');
+            const details = log.details ? escapeHtmlSafe(log.details) : 'N/A';
+
+            row.innerHTML = `
+                <td title='${log.ip_address || ''}'>${timestamp}</td>
+                <td>${escapeHtmlSafe(username)}</td>
+                <td><span class='badge'>${escapeHtmlSafe(action)}</span></td>
+                <td style='white-space: pre-wrap; word-break: break-word;'>${details}</td>
+            `;
+        });
+    }
+    table.style.display = 'table';
+}
+
+function escapeHtmlSafe(text) {
+    if (typeof text !== 'string') return text;
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return text.replace(/[&<>"']/g, m => map[m]);
 }
 
 /**
@@ -845,16 +923,20 @@ async function loadPreferences() {
         console.log(`${prefix}defaultView not found, defaulting view to grid`);
     }
 
-    // Currency Symbol - Load stored preference first
-    const storedCurrency = localStorage.getItem(`${prefix}currencySymbol`);
+    // Currency - Load stored preference first (code preferred; symbol is legacy)
+    const storedCurrencyCode = localStorage.getItem(`${prefix}currencyCode`);
+    const storedCurrency = storedCurrencyCode || localStorage.getItem(`${prefix}currencySymbol`);
     
     // Load currencies from API and set the saved preference
     await loadCurrenciesForSettings();
     
     if (storedCurrency) {
         if (currencySymbolSelect) {
-            // Check if the stored symbol is a standard option
-            const standardOption = Array.from(currencySymbolSelect.options).find(opt => opt.value === storedCurrency);
+            // Check if the stored code/symbol matches a standard option
+            // (option values are currency codes; legacy stored values may be symbols)
+            const standardOption = Array.from(currencySymbolSelect.options).find(opt =>
+                opt.value === storedCurrency ||
+                (globalCurrenciesData.find(c => c.code === opt.value)?.symbol === storedCurrency));
             if (standardOption) {
                 currencySymbolSelect.value = storedCurrency;
                 if (currencySymbolCustom) currencySymbolCustom.style.display = 'none';
@@ -871,10 +953,10 @@ async function loadPreferences() {
             console.log(`Loaded currency symbol from ${prefix}currencySymbol: ${storedCurrency}`);
         }
     } else {
-        // Default to '$' if nothing stored
-        if (currencySymbolSelect) currencySymbolSelect.value = '$';
+        // Default to 'USD' if nothing stored (option values are currency codes)
+        if (currencySymbolSelect) currencySymbolSelect.value = 'USD';
         if (currencySymbolCustom) currencySymbolCustom.style.display = 'none';
-        console.log(`${prefix}currencySymbol not found, defaulting to $`);
+        console.log(`${prefix}currencySymbol not found, defaulting to USD`);
     }
 
     // Currency Position
@@ -1629,11 +1711,13 @@ async function savePreferences() {
             // For custom symbols, try to derive currency code or default to USD
             currencyCode = 'USD'; // Default for custom symbols
         } else {
-            currencySymbol = currencySymbolSelect.value;
-            // Find the currency code for the selected symbol
-            const selectedCurrency = globalCurrenciesData.find(currency => currency.symbol === currencySymbol);
+            currencyCode = currencySymbolSelect.value;
+            // Find the symbol for the selected code
+            const selectedCurrency = globalCurrenciesData.find(currency => currency.code === currencyCode);
             if (selectedCurrency) {
-                currencyCode = selectedCurrency.code;
+                currencySymbol = selectedCurrency.symbol;
+            } else {
+                currencySymbol = currencyCode;
             }
         }
     }

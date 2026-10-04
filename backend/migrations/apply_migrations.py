@@ -9,6 +9,15 @@ import importlib.util
 
 from psycopg2.extensions import AsIs
 
+def _quote_ident(name):
+    """Quote a PostgreSQL identifier, preserving case (issue #187).
+
+    Unquoted identifiers are folded to lowercase by PostgreSQL, so a
+    mixed-case DB_USER like 'WarrantyUser' must be double-quoted.
+    Embedded double quotes are escaped by doubling.
+    """
+    return '"' + str(name).replace('"', '""') + '"'
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -18,11 +27,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # PostgreSQL connection details
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_PORT = os.environ.get('DB_PORT', '5432')
-DB_NAME = os.environ.get('DB_NAME', 'warranty_db')
-DB_USER = os.environ.get('DB_USER', 'warranty_user')
-DB_PASSWORD = os.environ.get('DB_PASSWORD', 'warranty_password')
+# DATABASE_URL (e.g. postgresql://user:pass@host:5432/dbname) takes precedence
+# over the individual DB_* variables when set (issue #108).
+def _db_parts():
+    url = os.environ.get('DATABASE_URL')
+    if url:
+        from urllib.parse import urlparse, unquote, parse_qsl
+        p = urlparse(url)
+        parts = {
+            'host': p.hostname or 'localhost',
+            'port': str(p.port) if p.port else '5432',
+            'name': (p.path or '').lstrip('/') or 'warranty_db',
+            'user': unquote(p.username) if p.username else 'warranty_user',
+            'password': unquote(p.password) if p.password else 'warranty_password',
+        }
+        # Preserve URL query options (e.g. ?sslmode=require) instead of
+        # silently dropping them (issue #108 follow-up).
+        options = dict(parse_qsl(p.query, keep_blank_values=True))
+        if options:
+            parts['options'] = options
+        return parts
+    return {
+        'host': os.environ.get('DB_HOST', 'localhost'),
+        'port': os.environ.get('DB_PORT', '5432'),
+        'name': os.environ.get('DB_NAME', 'warranty_db'),
+        'user': os.environ.get('DB_USER', 'warranty_user'),
+        'password': os.environ.get('DB_PASSWORD', 'warranty_password'),
+    }
+
+_DB = _db_parts()
+DB_HOST = _DB['host']
+DB_PORT = _DB['port']
+DB_NAME = _DB['name']
+DB_USER = _DB['user']
+DB_PASSWORD = _DB['password']
 DB_ADMIN_USER = os.environ.get('DB_ADMIN_USER', 'warracker_admin')
 DB_ADMIN_PASSWORD = os.environ.get('DB_ADMIN_PASSWORD', 'change_this_password_in_production')
 
@@ -38,6 +76,7 @@ def get_db_connection(max_attempts=5, attempt_delay=5):
                 dbname=DB_NAME,
                 user=DB_USER,
                 password=DB_PASSWORD,
+                **_DB.get('options', {}),
             )
             
             # Set autocommit to False for transaction control
@@ -120,10 +159,17 @@ def apply_migrations():
                         cur.execute(
                             sql,
                             {
-                                "db_name": AsIs(DB_NAME),
-                                "db_user": AsIs(DB_USER),
-                                "db_admin_user": AsIs(DB_ADMIN_USER),
-                                "db_admin_password": AsIs(DB_ADMIN_PASSWORD),
+                                # Identifiers are double-quoted so PostgreSQL
+                                # preserves their case (issue #187)
+                                "db_name": AsIs(_quote_ident(DB_NAME)),
+                                "db_user": AsIs(_quote_ident(DB_USER)),
+                                "db_admin_user": AsIs(_quote_ident(DB_ADMIN_USER)),
+                                # Raw names for string-literal contexts
+                                # (e.g. rolname comparisons)
+                                "db_user_name": DB_USER,
+                                "db_admin_user_name": DB_ADMIN_USER,
+                                # Password is a value: let psycopg2 escape it
+                                "db_admin_password": DB_ADMIN_PASSWORD,
                             }
                         )
                     else:
